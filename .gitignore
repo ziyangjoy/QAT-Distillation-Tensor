@@ -1,0 +1,10 @@
+__pycache__
+datasets/
+finetuned_models/
+results/
+wandb/
+logs/
+jobs/outputs/
+test.py
+*.ipynb
+temp.log
