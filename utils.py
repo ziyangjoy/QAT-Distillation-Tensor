@@ -252,8 +252,8 @@ class Trainer_Distill(Trainer):
             ) 
 
             if layer_use != num_layers:
-                soft_label_loss = 0
-                task_loss = 0
+                soft_label_loss = torch.tensor(0.0, device=device, requires_grad=True)
+                task_loss = torch.tensor(0.0, device=device, requires_grad=True)
             
             # Combine all losses with appropriate weights
         

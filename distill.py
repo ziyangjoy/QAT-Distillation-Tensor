@@ -18,36 +18,43 @@ from utils import preprocess_function, Trainer_Distill, TrainingArguments_Distil
 
 
 import os 
-os.environ["HF_HOME"] = '/network/rit/lab/ziyang_lab/ziyang/dataset_cache'
-model_dir = "/network/rit/lab/ziyang_lab/ziyang/models_cache"
-data_dir = "/network/rit/lab/ziyang_lab/ziyang/dataset_cache"
+# os.environ["HF_HOME"] = '/network/rit/lab/ziyang_lab/ziyang/dataset_cache'
+# model_dir = "/network/rit/lab/ziyang_lab/ziyang/models_cache"
+# data_dir = "/network/rit/lab/ziyang_lab/ziyang/dataset_cache"
 
 parser = argparse.ArgumentParser(description="Finetune BERT-base on a GLUE task.")
 parser.add_argument('--task', type=str, required=True, help='GLUE task name (e.g., mrpc, sst2, mnli, etc.)')
 parser.add_argument('--maxsequence', type=int, default=256, help='Maximum sequence length for tokenization')
-parser.add_argument('--teacher_model_path', type=str, help='Path to the teacher model checkpoint')
+# parser.add_argument('--teacher_model_path', type=str, help='Path to the teacher model checkpoint')
 args = parser.parse_args()
 
 task_name = args.task.lower()
 max_seq_length = args.maxsequence
 
 # Load dataset and metric
-raw_datasets = load_dataset("glue", task_name, cache_dir=data_dir)
+raw_datasets = load_dataset("nyu-mll/glue", task_name)
 metric = evaluate.load("glue", task_name)
 
 # Load tokenizer and model
-tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased", cache_dir=model_dir)
+tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
 label_list = raw_datasets["train"].features["label"].names if hasattr(raw_datasets["train"].features["label"], 'names') else None
 num_labels = len(label_list) if label_list else len(set(raw_datasets["train"]["label"]))
 print(f"num_labels: {num_labels}")
 
+# Load model directly
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
+# tokenizer = AutoTokenizer.from_pretrained("gchhablani/bert-base-uncased-finetuned-sst2")
+teacher_model = AutoModelForSequenceClassification.from_pretrained(f"JeremiahZ/bert-base-uncased-{args.task}", num_labels=num_labels)
+model_tensor = teacher_model
+
 # Load teacher model (finetuned BERT)
-if args.teacher_model_path:
-    teacher_model = BertForSequenceClassification.from_pretrained(args.teacher_model_path)
-    model_tensor = BertForSequenceClassification.from_pretrained(args.teacher_model_path)
-else:
-    teacher_model = BertForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=num_labels, cache_dir=model_dir)
-    model_tensor = BertForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=num_labels, cache_dir=model_dir)
+# if args.teacher_model_path:
+    # teacher_model = BertForSequenceClassification.from_pretrained(args.teacher_model_path)
+    # model_tensor = BertForSequenceClassification.from_pretrained(args.teacher_model_path)
+# else:
+    # teacher_model = BertForSequenceClassification.from_pretrained("bert-base-ununcased", num_labels=num_labels, cache_dir=model_dir)
+    # model_tensor = BertForSequenceClassification.from_pretrained("bert-base-ununcased", num_labels=num_labels, cache_dir=model_dir)
 # Initialize student model (tensor model)
 
 
@@ -110,6 +117,7 @@ encoded_datasets = encoded_datasets.remove_columns(
 )
 
 print(encoded_datasets['validation'][0])
+vocab_size = teacher_model.get_input_embeddings().num_embeddings
 
 from torch.nn.utils.rnn import pad_sequence
 pad_token_id = tokenizer.pad_token_id
@@ -125,11 +133,11 @@ def collate_fn(batch):
         attention_mask.append(torch.tensor(b['attention_mask']))
         target_ids.append(torch.tensor(b['label']))
         token_type_ids.append(torch.tensor(b['token_type_ids']))
-    input_ids = torch.swapaxes(pad_sequence(input_ids, padding_value=pad_token_id, padding_side=padding_side),0,1)
-    attention_mask = torch.swapaxes(pad_sequence(attention_mask, padding_value=0, padding_side=padding_side),0,1)
+    input_ids = torch.swapaxes(pad_sequence(input_ids, padding_value=pad_token_id),0,1)
+    attention_mask = torch.swapaxes(pad_sequence(attention_mask, padding_value=0),0,1)
     # target_ids = torch.swapaxes(pad_sequence(target_ids, padding_value=-100, padding_side=padding_side),0,1)
     target_ids = torch.tensor(target_ids)
-    token_type_ids = torch.swapaxes(pad_sequence(token_type_ids, padding_value=0, padding_side=padding_side),0,1)
+    token_type_ids = torch.swapaxes(pad_sequence(token_type_ids, padding_value=0),0,1)
     return {'input_ids': input_ids, 'attention_mask':attention_mask,'labels':target_ids,'token_type_ids':token_type_ids}
 
 print(encoded_datasets)
