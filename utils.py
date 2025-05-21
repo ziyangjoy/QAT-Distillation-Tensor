@@ -60,9 +60,10 @@ logger = logging.getLogger(__name__)
 
 
 class TrainingArguments_Distill(TrainingArguments):
-    def __init__(self, steps_per_layer=100, **kwargs):
+    def __init__(self, steps_per_layer=100, learning_rate_final=0.00001, **kwargs):
         super().__init__(**kwargs)
         self.steps_per_layer = steps_per_layer
+        self.learning_rate_final = learning_rate_final
 
 class Trainer_Distill(Trainer):
     def __init__(
@@ -190,10 +191,10 @@ class Trainer_Distill(Trainer):
 
             layer_loss = 0
 
-            layer_use = min(1+current_step//steps_per_layer,num_layers)
+            layer_use = min(1+current_step//steps_per_layer,num_layers+1)
             
             
-            for i in range(layer_use):
+            for i in range(min(layer_use,num_layers)):
                 # Get hidden states from teacher and student
                 t_hidden = self.teacher_outputs[f'layer_{i}']
                 s_hidden = self.student_outputs[f'layer_{i}']
@@ -251,9 +252,12 @@ class Trainer_Distill(Trainer):
                 F.softmax(teacher_logits, dim=-1),
             ) 
 
-            if layer_use != num_layers:
+            if layer_use != num_layers+1:
                 soft_label_loss = 0
                 task_loss = 0
+            else:
+                for param_group in self.optimizer.param_groups:
+                    param_group['lr'] = self.args.learning_rate_final
             
             # Combine all losses with appropriate weights
         

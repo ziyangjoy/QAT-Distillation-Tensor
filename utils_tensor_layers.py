@@ -90,6 +90,7 @@ class Linear_TT(nn.Module):
             self.bias = None
             
         self.quantization_aware = False
+        self.q_activation = False
             
     def init_scale(self,bit_cores=8,bit_intermediate=8):
         self.bit_cores = bit_cores
@@ -134,7 +135,13 @@ class Linear_TT(nn.Module):
             
 
         elif self.quantization_aware==True:
-            out = self.forward_tt_quantization_aware(input,factors) 
+            if self.q_activation:
+                out = self.forward_tt_quantization_aware(input,factors) 
+            else:
+                Q_factors = []
+                for i,U in enumerate(factors):
+                    Q_factors.append(quantize.apply(U,self.scale_cores[i],self.bit_cores))
+                out = self.forward_tt_full_precision(input,Q_factors) 
 
         if self.bias is not None:
             out = out + self.bias
@@ -375,9 +382,12 @@ class Embedding_TTM_order4(nn.Module):
     
     
     
-def set_quantization_aware_TT(layer,bit_cores=8,bit_intermediate=8):
+def set_quantization_aware_TT(layer,bit_cores=8,bit_intermediate=8,q_activation=False):
     layer.quantization_aware = True
+    layer.q_activation = q_activation
+
     layer.init_scale(bit_cores,bit_intermediate)
+    
 
 
     
@@ -385,10 +395,10 @@ def set_quantization_aware_TTM(layer,bit_cores=8):
     layer.quantization_aware = True
     layer.set_scale_factors(bit_cores)
 
-def set_quantization_aware_model(model,bit_cores=8,bit_intermediate=8):
+def set_quantization_aware_model(model,bit_cores=8,bit_intermediate=8,q_activation=False):
     for n,p in model.bert.named_modules():
         if type(p).__name__ == 'Linear_TT':
-            set_quantization_aware_TT(p,bit_cores,bit_intermediate)
+            set_quantization_aware_TT(p,bit_cores,bit_intermediate,q_activation=q_activation)
         elif type(p).__name__ == 'Embedding_TTM_order4':
             set_quantization_aware_TTM(p,bit_cores)
     

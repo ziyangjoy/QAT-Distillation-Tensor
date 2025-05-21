@@ -22,14 +22,32 @@ os.environ["HF_HOME"] = '/network/rit/lab/ziyang_lab/ziyang/dataset_cache'
 model_dir = "/network/rit/lab/ziyang_lab/ziyang/models_cache"
 data_dir = "/network/rit/lab/ziyang_lab/ziyang/dataset_cache"
 
+
+
 parser = argparse.ArgumentParser(description="Finetune BERT-base on a GLUE task.")
 parser.add_argument('--task', type=str, required=True, help='GLUE task name (e.g., mrpc, sst2, mnli, etc.)')
 parser.add_argument('--maxsequence', type=int, default=256, help='Maximum sequence length for tokenization')
 parser.add_argument('--teacher_model_path', type=str, help='Path to the teacher model checkpoint')
+parser.add_argument('--qat', type=int, default=0, help='0: no qat, 1: qat, 2: qat with activation')
+
+
+
+
+
 args = parser.parse_args()
 
 task_name = args.task.lower()
 max_seq_length = args.maxsequence
+
+
+if args.qat == 0:
+    use_qat = False
+elif args.qat == 1:
+    use_qat = True
+    use_qat_activation = False
+elif args.qat == 2:
+    use_qat = True
+    use_qat_activation = True
 
 # Load dataset and metric
 raw_datasets = load_dataset("glue", task_name, cache_dir=data_dir)
@@ -60,7 +78,12 @@ TT_ranks_ffn = [1,30,30,30,1]
 
 from utils_tensor_layers import get_tensor_model, set_quantization_aware_model
 get_tensor_model(model_tensor,TT_dims_att,TT_ranks_att,TT_dims_ffn,TT_ranks_ffn,TTM_dims,TTM_ranks)
-set_quantization_aware_model(model_tensor,bit_cores=8,bit_intermediate=8)
+
+if use_qat:
+    set_quantization_aware_model(model_tensor,bit_cores=4,bit_intermediate=8,q_activation=use_qat_activation)
+
+
+
 # print(model_tensor)
 
 # for n,p in model_tensor.named_parameters():
@@ -78,6 +101,9 @@ from transformers import BertTokenizerFast
 
 # Set device to CUDA if available
 device = 'cuda'
+
+model_tensor.to(device)
+teacher_model.to(device)
 
 sentence1_key, sentence2_key = None, None
 if task_name in ["cola", "sst2"]:
@@ -154,6 +180,7 @@ training_args = TrainingArguments_Distill(
     save_steps=1000000,
     save_total_limit=1,
     learning_rate=1e-3,
+    learning_rate_final=2e-5,
     per_device_train_batch_size=32,
     per_device_eval_batch_size=32,
     num_train_epochs=500,
