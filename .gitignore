@@ -8,3 +8,4 @@ jobs/outputs/
 test.py
 *.ipynb
 temp.log
+logs/

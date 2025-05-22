@@ -56,13 +56,14 @@ from transformers import Trainer
 from typing import Dict, List, Optional, Tuple, Union
 import logging
 from transformers import TrainingArguments
+
 logger = logging.getLogger(__name__)
 
-
 class TrainingArguments_Distill(TrainingArguments):
-    def __init__(self, steps_per_layer=100, **kwargs):
+    def __init__(self, steps_per_layer=100, learning_rate_final=0.00001, **kwargs):
         super().__init__(**kwargs)
         self.steps_per_layer = steps_per_layer
+        self.learning_rate_final = learning_rate_final
 
 class Trainer_Distill(Trainer):
     def __init__(
@@ -90,7 +91,21 @@ class Trainer_Distill(Trainer):
         
         # Register hooks for teacher model
         self._register_teacher_hooks()
+
+    def log(self, logs: Dict[str, float], start_time: Optional[float] = None) -> None:
+        # Call the original log method
+        super().log(logs)
         
+        # Log custom metrics
+        if "loss" in logs:
+            logger.info(f"Step {self.state.global_step}: Loss = {logs['loss']}")
+        if "learning_rate" in logs:
+            logger.info(f"Learning Rate = {logs['learning_rate']}")
+        if "eval_loss" in logs:
+            logger.info(f"Evaluation Loss = {logs['eval_loss']}")
+        if "eval_accuracy" in logs:
+            logger.info(f"Evaluation Accuracy = {logs['eval_accuracy']}")
+
     def _register_teacher_hooks(self):
         """Register hooks to capture teacher model outputs"""
         def get_activation(name, storage):
@@ -161,6 +176,10 @@ class Trainer_Distill(Trainer):
             with torch.no_grad():
                 teacher_outputs = self.teacher_model(**inputs, output_attentions=True)
                 
+            model.train()
+            for param in model.parameters():
+                param.requires_grad = True
+
             # Get student outputs with attention weights
             student_outputs = model(**inputs, output_attentions=True)
             
@@ -190,10 +209,10 @@ class Trainer_Distill(Trainer):
 
             layer_loss = 0
 
-            layer_use = min(1+current_step//steps_per_layer,num_layers)
+            layer_use = min(1+current_step//steps_per_layer,num_layers+1)
             
             
-            for i in range(layer_use):
+            for i in range(min(layer_use,num_layers)):
                 # Get hidden states from teacher and student
                 t_hidden = self.teacher_outputs[f'layer_{i}']
                 s_hidden = self.student_outputs[f'layer_{i}']
@@ -251,9 +270,12 @@ class Trainer_Distill(Trainer):
                 F.softmax(teacher_logits, dim=-1),
             ) 
 
-            if layer_use != num_layers:
-                soft_label_loss = torch.tensor(0.0, device=device, requires_grad=True)
-                task_loss = torch.tensor(0.0, device=device, requires_grad=True)
+            if layer_use != num_layers+1:
+                soft_label_loss = 0
+                task_loss = 0
+            else:
+                for param_group in self.optimizer.param_groups:
+                    param_group['lr'] = self.args.learning_rate_final
             
             # Combine all losses with appropriate weights
         
@@ -265,6 +287,14 @@ class Trainer_Distill(Trainer):
                         p * embedding_loss +
                         p * attention_loss)
             # return total_loss
+            # Log custom metrics
+            if self.state.global_step % self.args.logging_steps == 0:
+                self.log({
+                    "total_loss": total_loss.item(),
+                    "current_step": self.state.global_step,
+                    "layer_use": layer_use,  
+                    "learning_rate": self.optimizer.param_groups[0]['lr'],
+                })
             return (total_loss, student_outputs) if return_outputs else total_loss
     
     # def prediction_step(self, model, inputs, prediction_loss_only=False, ignore_keys=None):

@@ -17,9 +17,9 @@ from utils import preprocess_function
 
 
 import os 
-os.environ["HF_HOME"] = '/network/rit/lab/ziyang_lab/ziyang/dataset_cache'
-model_dir = "/network/rit/lab/ziyang_lab/ziyang/models_cache"
-data_dir = "/network/rit/lab/ziyang_lab/ziyang/dataset_cache"
+# os.environ["HF_HOME"] = '/network/rit/lab/ziyang_lab/ziyang/dataset_cache'
+# model_dir = "/network/rit/lab/ziyang_lab/ziyang/models_cache"
+# data_dir = "/network/rit/lab/ziyang_lab/ziyang/dataset_cache"
 
 def main():
     parser = argparse.ArgumentParser(description="Finetune BERT-base on a GLUE task.")
@@ -30,15 +30,15 @@ def main():
     max_seq_length = args.maxsequence
 
     # Load dataset and metric
-    raw_datasets = load_dataset("glue", task_name, cache_dir=data_dir)
+    raw_datasets = load_dataset("glue", task_name)
     metric = evaluate.load("glue", task_name)
 
     # Load tokenizer and model
-    tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased", cache_dir=model_dir)
+    tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
     label_list = raw_datasets["train"].features["label"].names if hasattr(raw_datasets["train"].features["label"], 'names') else None
     num_labels = len(label_list) if label_list else len(set(raw_datasets["train"]["label"]))
     print(f"num_labels: {num_labels}")
-    model = BertForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=num_labels, cache_dir=model_dir)
+    model = BertForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=num_labels)
     print(model)
     # Set device to CUDA if available
     device = 'cuda'
