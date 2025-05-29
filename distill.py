@@ -66,7 +66,7 @@ from utils_tensor_layers import get_tensor_model, set_quantization_aware_model
 get_tensor_model(model_tensor,TT_dims_att,TT_ranks_att,TT_dims_ffn,TT_ranks_ffn,TTM_dims,TTM_ranks)
 
 if use_qat:
-    set_quantization_aware_model(model_tensor,bit_cores=4,bit_intermediate=8,q_activation=use_qat_activation)
+    tt_params = set_quantization_aware_model(model_tensor,bit_cores=4,bit_intermediate=8,q_activation=use_qat_activation)
 
 
 
@@ -205,6 +205,7 @@ elif task_name == "stsb":
 else:
     metric_for_best_model = "accuracy"
 
+max_steps = args.num_train_epochs * (len(encoded_dataset["train"]) // args.batchsize)
 # Initialize distillation trainer
 # Training arguments
 training_args = TrainingArguments_Distill(
@@ -229,12 +230,12 @@ training_args = TrainingArguments_Distill(
     fp16=False,
     bf16=False,
     max_grad_norm=10.0,
+    max_steps=max_steps,  
     save_safetensors=False,  # Disable safe serialization
     run_name=f"{task_name}_distill_qat{args.qat}_bs{args.batchsize}"  # Custom wandb run name
 )
 
 num_train_examples = len(encoded_dataset["train"])
-training_args.max_steps = int(num_train_examples / training_args.per_device_train_batch_size * training_args.num_train_epochs)
 print("Training steps: ", training_args.max_steps)
 steps_per_layer = training_args.max_steps // len(teacher_model.bert.encoder.layer) // 2
 print("Steps per layer: ", steps_per_layer)

@@ -4,7 +4,7 @@ import numpy as np
 import math
 
 from emb_utils import get_cum_prod
-
+from tensorly.decomposition import tensor_train
 
 class quantize(torch.autograd.Function):
     """
@@ -396,12 +396,14 @@ def set_quantization_aware_TTM(layer,bit_cores=8):
     layer.set_scale_factors(bit_cores)
 
 def set_quantization_aware_model(model,bit_cores=8,bit_intermediate=8,q_activation=False):
+    tt_params = []
     for n,p in model.bert.named_modules():
         if type(p).__name__ == 'Linear_TT':
             set_quantization_aware_TT(p,bit_cores,bit_intermediate,q_activation=q_activation)
+            tt_params.append(p.parameters())
         elif type(p).__name__ == 'Embedding_TTM_order4':
             set_quantization_aware_TTM(p,bit_cores)
-    
+    return tt_params
     
 def Get_tensor_TT(model,TT_dims_att,TT_ranks_att,TT_dims_ffn,TT_ranks_ffn):
     for n,p in model.bert.named_modules():
@@ -427,17 +429,20 @@ def Get_tensor_TT(model,TT_dims_att,TT_ranks_att,TT_dims_ffn,TT_ranks_ffn):
             out_features,in_features = p.weight.shape
             
             Layer = Linear_TT(in_features,out_features,TT_dims,TT_ranks,bias=(p.bias!=None))
-            Layer.to(W.device).to(W.dtype)
 
             if p.bias!=None:
                 Layer.bias.data = p.bias
             else:
                 Layer.bias = None
             
+            W = W.view(TT_dims)
+            with torch.no_grad():
+                factors = tensor_train(W, TT_ranks)
+            Layer.TT_cores = nn.ParameterList([torch.tensor(factor) for factor in factors.factors])
 
+            Layer.to(W.device).to(W.dtype)
            
             
-            del p.weight
             del p
             
             print(key_previous,n.split('.')[-1])

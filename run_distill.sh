@@ -1,12 +1,12 @@
 #!/bin/bash
 
 # Set environment variables
-export CUDA_VISIBLE_DEVICES=0  # Use first GPU
+export CUDA_VISIBLE_DEVICES=0
 
 
 
 
-task=mnli
+task=qqp
 qat=1
 maxsequence=128
 # learning_rate_final=5e-5
@@ -22,7 +22,7 @@ case $task in
     num_train_epochs=10
     ;; # works well
   "mrpc")
-    learning_rate=1e-4
+    learning_rate=2e-3
     learning_rate_final=2e-5
     batchsize=8
     num_train_epochs=20
@@ -38,13 +38,13 @@ case $task in
     learning_rate_final=5e-5
     batchsize=32
     num_train_epochs=3
-    ;;
+    ;; # works well
   "qqp")
     learning_rate=1e-3
     learning_rate_final=5e-5
     batchsize=32
     num_train_epochs=3
-    ;;
+    ;; # works well
   *)
     echo "Task $task not recognized. Please add it to the case statement."
     exit 1
