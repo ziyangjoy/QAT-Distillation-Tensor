@@ -54,13 +54,18 @@ tokenizer = AutoTokenizer.from_pretrained(f"JeremiahZ/bert-base-uncased-{args.ta
 teacher_model = AutoModelForSequenceClassification.from_pretrained(f"JeremiahZ/bert-base-uncased-{args.task}")
 model_tensor = copy.deepcopy(teacher_model)
 
-
 TTM_dims = [[16,20,10,10],[4,4,8,6]]
 TTM_ranks = [1,20,20,20,1]
-TT_dims_att = [24,32,32,24]
-TT_ranks_att = [1,24,30,24,1]
-TT_dims_ffn = [32,24,48,64]
-TT_ranks_ffn = [1,30,30,30,1]
+# 4 cores
+# TT_dims_att = [24,32,32,24]
+# TT_ranks_att = [1,24,30,24,1]
+# TT_dims_ffn = [32,24,48,64]
+# TT_ranks_ffn = [1,30,30,30,1]
+# 6 cores
+TT_dims_att = [12,8,8,8,8,12]
+TT_ranks_att = [1,12,64,64,64,12,1]
+TT_dims_ffn = [12,8,8,12,16,16]
+TT_ranks_ffn = [1,12,64,64,64,16,1]
 
 from utils_tensor_layers import get_tensor_model, set_quantization_aware_model
 get_tensor_model(model_tensor,TT_dims_att,TT_ranks_att,TT_dims_ffn,TT_ranks_ffn,TTM_dims,TTM_ranks)

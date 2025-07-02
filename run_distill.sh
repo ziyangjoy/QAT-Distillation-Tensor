@@ -6,7 +6,7 @@ export CUDA_VISIBLE_DEVICES=0
 
 
 
-task=qqp
+task=sst2
 qat=1
 maxsequence=128
 # learning_rate_final=5e-5

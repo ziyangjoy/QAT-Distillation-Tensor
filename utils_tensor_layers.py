@@ -1,10 +1,96 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import torch.nn.functional as F
 import math
 
 from emb_utils import get_cum_prod
-from tensorly.decomposition import tensor_train
+
+import tensorly as tl
+from tensorly.tt_tensor import validate_tt_rank, TTTensor
+from tensorly.tenalg.svd import svd_interface
+# from tensorly.decomposition import tensor_train
+
+def tensor_train(input_tensor, rank, svd="truncated_svd", verbose=False):
+    """TT decomposition via recursive SVD
+
+        Decomposes `input_tensor` into a sequence of order-3 tensors (factors)
+        -- also known as Tensor-Train decomposition [1]_.
+
+    Parameters
+    ----------
+    input_tensor : tensorly.tensor
+    rank : {int, int list}
+            maximum allowable TT rank of the factors
+            if int, then this is the same for all the factors
+            if int list, then rank[k] is the rank of the kth factor
+    svd : str, default is 'truncated_svd'
+        function to use to compute the SVD, acceptable values in tensorly.SVD_FUNS
+    verbose : boolean, optional
+            level of verbosity
+
+    Returns
+    -------
+    factors : TT factors
+              order-3 tensors of the TT decomposition
+
+    References
+    ----------
+    .. [1] Ivan V. Oseledets. "Tensor-train decomposition", SIAM J. Scientific Computing, 33(5):2295–2317, 2011.
+    """
+    rank = validate_tt_rank(tl.shape(input_tensor), rank=rank)
+    tensor_size = input_tensor.shape
+    n_dim = len(tensor_size)
+
+    unfolding = input_tensor
+    factors = [None] * n_dim
+
+    # Getting the TT factors up to n_dim - 1
+    for k in range(n_dim - 1):
+        # Reshape the unfolding matrix of the remaining factors
+        n_row = int(rank[k] * tensor_size[k])
+        unfolding = tl.reshape(unfolding, (n_row, -1))
+
+        # SVD of unfolding matrix
+        (n_row, n_column) = unfolding.shape
+        current_rank = min(n_row, n_column, rank[k + 1])
+        U, S, V = svd_interface(unfolding, n_eigenvecs=current_rank, method=svd)
+
+        rank[k + 1] = current_rank
+
+        # Get kth TT factor
+        factors[k] = tl.reshape(U, (rank[k], tensor_size[k], rank[k + 1]))
+
+        if verbose is True:
+            print(
+                "TT factor " + str(k) + " computed with shape " + str(factors[k].shape)
+            )
+
+        # Get new unfolding matrix for the remaining factors
+        unfolding = tl.reshape(S, (-1, 1)) * V
+
+    # Getting the last factor
+    (prev_rank, last_dim) = unfolding.shape
+    factors[-1] = tl.reshape(unfolding, (prev_rank, last_dim, 1))
+
+    # original_norm = np.linalg.norm(input_tensor)
+    original_norm = 1
+    for core in factors:
+        original_norm *= np.linalg.norm(core)
+    factor_norms = [np.linalg.norm(core) for core in factors]
+    scales = (original_norm) ** (1 / len(factors))  / factor_norms
+
+    factors = [core * scale for core, scale in zip(factors, scales)]
+
+    if verbose is True:
+        print(
+            "TT factor "
+            + str(n_dim - 1)
+            + " computed with shape "
+            + str(factors[n_dim - 1].shape)
+        )
+
+    return TTTensor(factors)
 
 class quantize(torch.autograd.Function):
     """
@@ -131,7 +217,7 @@ class Linear_TT(nn.Module):
         
 
         if self.quantization_aware==False:
-            out = self.forward_tt_full_precision(input,factors)  
+            out = self.forward_bidirection(input,factors)  
             
 
         elif self.quantization_aware==True:
@@ -141,7 +227,7 @@ class Linear_TT(nn.Module):
                 Q_factors = []
                 for i,U in enumerate(factors):
                     Q_factors.append(quantize.apply(U,self.scale_cores[i],self.bit_cores))
-                out = self.forward_tt_full_precision(input,Q_factors) 
+                out = self.forward_bidirection(input,Q_factors) 
 
         if self.bias is not None:
             out = out + self.bias
@@ -249,6 +335,70 @@ class Linear_TT(nn.Module):
 
         return output   
             
+    def forward_sequential(
+            self, x, factors):
+        ## From Jinming's Implementation
+        # Order of factors: [f6, f5, f4, f3, f2, f1] * x;
+        # X: [B, L, n3, n2, n1, 1]
+        # in_dims = f3xf2xf1; out_dims = f6xf5xf4
+        tt_factors = factors
+        order_in = len(factors)//2
+        order_out = len(factors)//2
+        orig_shape = list(x.shape)
+        out_features = self.TT_dims[:order_in]
+        in_features = self.TT_dims[order_in:]
+
+        inshapes = list(in_features) + [1]
+        x_tensor = x.reshape(-1, *inshapes)
+        ## contraction
+        for i in range(order_in):
+            cur_dim = order_out + order_in-i
+            f = tt_factors[cur_dim-1]
+            dims = x_tensor.dim()-1
+            x_tensor = torch.tensordot(x_tensor, f, dims=[[dims-1, dims], [1, 2]])
+
+        x_tensor = x_tensor.transpose(1, 0)
+        ## expandation
+        for j in range(order_out):
+            cur_dim = order_out - j
+            f = tt_factors[cur_dim-1]
+            # f = f.permute(1, 0, 2)
+            x_tensor = torch.tensordot(f, x_tensor, dims=[[2], [0]])
+
+        # order =  0, list(range(order_out, 0, -1)),
+        # x_tensor = x_tensor.permute()
+        
+        x = x_tensor.reshape(math.prod(out_features), -1).transpose(1, 0).reshape(
+            orig_shape[0:-1] + [math.prod(out_features)]
+        )
+
+        return x
+    
+    def forward_bidirection(
+            self, x, factors):
+        
+        ## From Jinming's Implementation
+        tt_factors = factors
+        order_in = len(factors)//2
+        order_out = len(factors)//2
+        in_features = self.TT_dims[order_in:]
+        out_features = self.TT_dims[:order_in]
+
+        weight_u = tt_factors[0]
+        for i in range(1, order_out):
+            f = tt_factors[i]
+            weight_u = torch.tensordot(weight_u, f, dims=[[-1], [0]])
+        weight_u = weight_u.reshape(math.prod(out_features), -1)
+
+        weight_v = tt_factors[order_out]
+        for j in range(order_out+1, order_out+order_in):
+            f = tt_factors[j]
+            weight_v = torch.tensordot(weight_v, f, dims=[[-1], [0]])
+        weight_v = weight_v.reshape(-1, math.prod(in_features))
+        x = torch.tensordot(x, weight_v, dims=[[-1], [1]])
+        x = torch.tensordot(x, weight_u, dims=[[-1], [1]])
+
+        return x
             
 class Embedding_TTM_order4(nn.Module):
     '''
@@ -413,14 +563,14 @@ def Get_tensor_TT(model,TT_dims_att,TT_ranks_att,TT_dims_ffn,TT_ranks_ffn):
                 TT_dims = TT_dims_att
                 TT_ranks = TT_ranks_att
             elif 'intermediate' in n:
-                TT_dims = TT_dims_ffn
-                TT_ranks = TT_ranks_ffn
+                TT_dims = TT_dims_ffn[::-1]
+                TT_ranks = TT_ranks_ffn[::-1]
             elif 'pooler' in n:
                 TT_dims = TT_dims_att
                 TT_ranks = TT_ranks_att
             elif 'output' in n and 'dense' in n:
-                TT_dims = TT_dims_ffn[::-1]
-                TT_ranks = TT_ranks_ffn[::-1]
+                TT_dims = TT_dims_ffn
+                TT_ranks = TT_ranks_ffn
             
             key_previous = '.'.join(n.split('.')[:-1])
             mod = model.bert.get_submodule(key_previous)
