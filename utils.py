@@ -114,12 +114,18 @@ class Trainer_Distill(Trainer):
             return hook
         
         # Register hook for embeddings
-        self.teacher_model.bert.embeddings.register_forward_hook(
+        if hasattr(self.teacher_model, "bert"):
+            teacher_model = self.teacher_model.bert
+        elif hasattr(self.teacher_model, "roberta"):
+            teacher_model = self.teacher_model.roberta
+        else:
+            raise AttributeError("Model not supported.")
+        teacher_model.embeddings.register_forward_hook(
             get_activation('embeddings', self.teacher_outputs)
         )
         
         # Register hooks for each encoder layer
-        for i, layer in enumerate(self.teacher_model.bert.encoder.layer):
+        for i, layer in enumerate(teacher_model.encoder.layer):
             # Register hook for layer output
             layer.register_forward_hook(
                 get_activation(f'layer_{i}', self.teacher_outputs)
@@ -136,12 +142,18 @@ class Trainer_Distill(Trainer):
         self.student_outputs.clear()
         
         # Register hook for embeddings
-        self.model.bert.embeddings.register_forward_hook(
+        if hasattr(self.model, "bert"):
+            model = self.model.bert
+        elif hasattr(self.model, "roberta"):
+            model = self.model.roberta
+        else:
+            raise AttributeError("Model not supported.")
+        model.embeddings.register_forward_hook(
             get_activation('embeddings', self.student_outputs)
         )
         
         # Register hooks for each encoder layer
-        for i, layer in enumerate(self.model.bert.encoder.layer):
+        for i, layer in enumerate(model.encoder.layer):
             # Register hook for layer output
             layer.register_forward_hook(
                 get_activation(f'layer_{i}', self.student_outputs)
@@ -202,7 +214,14 @@ class Trainer_Distill(Trainer):
             # Layer-wise distillation loss (MSE + Cosine) and attention distillation
             distill_loss = 0.0
             attention_loss = 0.0
-            num_layers = len(self.teacher_model.bert.encoder.layer)
+            
+            if hasattr(self.teacher_model, "bert"):
+                teacher_model = self.teacher_model.bert
+            elif hasattr(self.teacher_model, "roberta"):
+                teacher_model = self.teacher_model.roberta
+            else:
+                raise AttributeError("Model not supported.")
+            num_layers = len(teacher_model.encoder.layer)
 
             current_step = self.state.global_step
             steps_per_layer = self.args.steps_per_layer

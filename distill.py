@@ -50,9 +50,12 @@ elif args.qat == 2:
 # Load model directly
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import copy
-tokenizer = AutoTokenizer.from_pretrained(f"JeremiahZ/bert-base-uncased-{args.task}")
-teacher_model = AutoModelForSequenceClassification.from_pretrained(f"JeremiahZ/bert-base-uncased-{args.task}")
+# tokenizer = AutoTokenizer.from_pretrained(f"JeremiahZ/bert-base-uncased-{args.task}")
+# teacher_model = AutoModelForSequenceClassification.from_pretrained(f"JeremiahZ/bert-base-uncased-{args.task}")
+tokenizer = AutoTokenizer.from_pretrained(f"JeremiahZ/roberta-base-{args.task}")
+teacher_model = AutoModelForSequenceClassification.from_pretrained(f"JeremiahZ/roberta-base-{args.task}")
 model_tensor = copy.deepcopy(teacher_model)
+print(teacher_model)
 
 TTM_dims = [[16,20,10,10],[4,4,8,6]]
 TTM_ranks = [1,20,20,20,1]
@@ -242,7 +245,14 @@ training_args = TrainingArguments_Distill(
 
 num_train_examples = len(encoded_dataset["train"])
 print("Training steps: ", training_args.max_steps)
-steps_per_layer = training_args.max_steps // len(teacher_model.bert.encoder.layer) // 2
+
+if hasattr(teacher_model, "bert"):
+    encoder_layers = teacher_model.bert.encoder.layer
+elif hasattr(teacher_model, "roberta"):
+    encoder_layers = teacher_model.roberta.encoder.layer
+else:
+    raise AttributeError("Model not supported.")
+steps_per_layer = training_args.max_steps // len(encoder_layers) // 2
 print("Steps per layer: ", steps_per_layer)
 training_args.steps_per_layer = steps_per_layer
 

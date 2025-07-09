@@ -16,8 +16,8 @@ maxsequence=128
 #  Select learning rate, batch size, and epochs based on the task
 case $task in
   "sst2")
-    learning_rate=1e-3
-    learning_rate_final=5e-5
+    learning_rate=1e-4
+    learning_rate_final=1e-4
     batchsize=32
     num_train_epochs=10
     ;; # works well
@@ -28,8 +28,8 @@ case $task in
     num_train_epochs=20
     ;;
   "qnli")
-    learning_rate=1e-3
-    learning_rate_final=5e-5
+    learning_rate=1e-4
+    learning_rate_final=1e-4
     batchsize=32
     num_train_epochs=5
     ;; # works well

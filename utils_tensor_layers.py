@@ -547,7 +547,13 @@ def set_quantization_aware_TTM(layer,bit_cores=8):
 
 def set_quantization_aware_model(model,bit_cores=8,bit_intermediate=8,q_activation=False):
     tt_params = []
-    for n,p in model.bert.named_modules():
+    if hasattr(model, "bert"):
+        model = model.bert
+    elif hasattr(model, "roberta"):
+        model = model.roberta
+    else:
+        raise AttributeError("Model not supported.")
+    for n,p in model.named_modules():
         if type(p).__name__ == 'Linear_TT':
             set_quantization_aware_TT(p,bit_cores,bit_intermediate,q_activation=q_activation)
             tt_params.append(p.parameters())
@@ -556,7 +562,13 @@ def set_quantization_aware_model(model,bit_cores=8,bit_intermediate=8,q_activati
     return tt_params
     
 def Get_tensor_TT(model,TT_dims_att,TT_ranks_att,TT_dims_ffn,TT_ranks_ffn):
-    for n,p in model.bert.named_modules():
+    if hasattr(model, "bert"):
+        model = model.bert
+    elif hasattr(model, "roberta"):
+        model = model.roberta
+    else:
+        raise AttributeError("Model not supported.")
+    for n,p in model.named_modules():
         if type(p).__name__ == 'Linear':
             print(f"processing {n}")
             if 'attention' in n:
@@ -573,7 +585,7 @@ def Get_tensor_TT(model,TT_dims_att,TT_ranks_att,TT_dims_ffn,TT_ranks_ffn):
                 TT_ranks = TT_ranks_ffn
             
             key_previous = '.'.join(n.split('.')[:-1])
-            mod = model.bert.get_submodule(key_previous)
+            mod = model.get_submodule(key_previous)
 
             W = p.weight
             out_features,in_features = p.weight.shape
