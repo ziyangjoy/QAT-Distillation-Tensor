@@ -20,11 +20,22 @@ size_enc = size_att * 4 + size_ffn * 2
 org_size_enc = org_size_att * 4 + org_size_ffn * 2
 print(org_size_enc, size_enc)
 print(org_size_enc / size_enc)
-# 6 cores
-TT_dims_att = [12,8,8,8,8,12]
-TT_ranks_att = [1,12,64,64,64,12,1]
-TT_dims_ffn = [12,8,8,12,16,16]
-TT_ranks_ffn = [1,12,64,64,64,16,1]
+### 6 cores base
+# TT_dims_att = [12,8,8,8,8,12]
+# TT_ranks_att = [1,12,64,64,64,12,1]
+# TT_dims_ffn = [12,8,8,12,16,16]
+# TT_ranks_ffn = [1,12,64,64,64,16,1]
+### 6 cores large
+# TT_dims_att = [16,8,8,8,8,16]
+# TT_ranks_att = [1,16,96,96,96,16,1]
+# TT_dims_ffn = [16,8,8,16,16,16]
+# TT_ranks_ffn = [1,16,96,96,96,16,1]
+### 8 cores large
+TT_dims_att = [8,8,4,4,4,4,8,8]
+TT_ranks_att = [1,8,64,96,96,96,64,8,1]
+TT_dims_ffn = [8,8,4,4,8,8,8,8]
+TT_ranks_ffn = [1,8,64,96,96,96,64,8,1]
+
 size_att, org_size_att = compute_size(TT_dims_att, TT_ranks_att)
 size_ffn, org_size_ffn = compute_size(TT_dims_ffn, TT_ranks_ffn)
 size_enc = size_att * 4 + size_ffn * 2

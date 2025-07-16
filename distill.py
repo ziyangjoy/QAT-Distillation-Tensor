@@ -50,29 +50,47 @@ elif args.qat == 2:
 # Load model directly
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import copy
-# tokenizer = AutoTokenizer.from_pretrained(f"JeremiahZ/bert-base-uncased-{args.task}")
-# teacher_model = AutoModelForSequenceClassification.from_pretrained(f"JeremiahZ/bert-base-uncased-{args.task}")
-tokenizer = AutoTokenizer.from_pretrained(f"JeremiahZ/roberta-base-{args.task}")
-teacher_model = AutoModelForSequenceClassification.from_pretrained(f"JeremiahZ/roberta-base-{args.task}")
+tokenizer = AutoTokenizer.from_pretrained(f"JeremiahZ/bert-base-uncased-{args.task}")
+teacher_model = AutoModelForSequenceClassification.from_pretrained(f"JeremiahZ/bert-base-uncased-{args.task}")
+# tokenizer = AutoTokenizer.from_pretrained(f"JeremiahZ/roberta-base-{args.task}")
+# teacher_model = AutoModelForSequenceClassification.from_pretrained(f"JeremiahZ/roberta-base-{args.task}")
+# tokenizer = AutoTokenizer.from_pretrained(f"yoshitomo-matsubara/bert-large-uncased-{args.task}")
+# teacher_model = AutoModelForSequenceClassification.from_pretrained(f"yoshitomo-matsubara/bert-large-uncased-{args.task}")
+
 model_tensor = copy.deepcopy(teacher_model)
 print(teacher_model)
 
 TTM_dims = [[16,20,10,10],[4,4,8,6]]
 TTM_ranks = [1,20,20,20,1]
+
 # 4 cores
 # TT_dims_att = [24,32,32,24]
 # TT_ranks_att = [1,24,30,24,1]
 # TT_dims_ffn = [32,24,48,64]
 # TT_ranks_ffn = [1,30,30,30,1]
-# 6 cores
+
+# 6 cores bert-base 768
 TT_dims_att = [12,8,8,8,8,12]
 TT_ranks_att = [1,12,64,64,64,12,1]
 TT_dims_ffn = [12,8,8,12,16,16]
 TT_ranks_ffn = [1,12,64,64,64,16,1]
 
+# 6 cores bert-large 1024
+# TT_dims_att = [16,8,8,8,8,16]
+# TT_ranks_att = [1,16,96,96,96,16,1]
+# TT_dims_ffn = [16,8,8,16,16,16]
+# TT_ranks_ffn = [1,16,96,96,96,16,1]
+
+# 8 cores bert-large 1024
+# TT_dims_att = [8,8,4,4,4,4,8,8]
+# TT_ranks_att = [1,8,64,96,96,96,64,8,1]
+# TT_dims_ffn = [8,8,4,4,8,8,8,8]
+# TT_ranks_ffn = [1,8,64,96,96,96,64,8,1]
+
 from utils_tensor_layers import get_tensor_model, set_quantization_aware_model
 get_tensor_model(model_tensor,TT_dims_att,TT_ranks_att,TT_dims_ffn,TT_ranks_ffn,TTM_dims,TTM_ranks)
 
+print(model_tensor)
 if use_qat:
     tt_params = set_quantization_aware_model(model_tensor,bit_cores=4,bit_intermediate=8,q_activation=use_qat_activation)
 
@@ -223,6 +241,7 @@ training_args = TrainingArguments_Distill(
     eval_steps=100,
     save_steps=1000000,
     save_total_limit=1,
+    other_lr=2e-5,
     learning_rate=args.learning_rate,
     learning_rate_final=args.learning_rate_final,
     per_device_train_batch_size=args.batchsize,

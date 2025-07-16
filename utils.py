@@ -60,10 +60,11 @@ from transformers import TrainingArguments
 logger = logging.getLogger(__name__)
 
 class TrainingArguments_Distill(TrainingArguments):
-    def __init__(self, steps_per_layer=100, learning_rate_final=0.00001, **kwargs):
+    def __init__(self, steps_per_layer=100, learning_rate_final=0.00001, other_lr=5e-5, **kwargs):
         super().__init__(**kwargs)
         self.steps_per_layer = steps_per_layer
         self.learning_rate_final = learning_rate_final
+        self.other_lr = other_lr
 
 class Trainer_Distill(Trainer):
     def __init__(
@@ -106,6 +107,60 @@ class Trainer_Distill(Trainer):
         if "eval_accuracy" in logs:
             logger.info(f"Evaluation Accuracy = {logs['eval_accuracy']}")
 
+    def create_optimizer(self):
+        """Create optimizer with different learning rates for encoder and other layers"""
+        if self.optimizer is None:
+            # Get all model parameters
+            encoder_params = []
+            other_params = []
+            
+            # Separate encoder parameters from other parameters
+            if hasattr(self.model, "bert"):
+                encoder_params = list(self.model.bert.encoder.parameters())
+                # Other params include embeddings, pooler, and classifier
+                embedding_params = list(self.model.bert.embeddings.parameters())
+                pooler_params = list(self.model.bert.pooler.parameters()) if hasattr(self.model.bert, 'pooler') else []
+                classifier_params = list(self.model.classifier.parameters()) if hasattr(self.model, 'classifier') else []
+                other_params = embedding_params + pooler_params + classifier_params
+                
+            elif hasattr(self.model, "roberta"):
+                encoder_params = list(self.model.roberta.encoder.parameters())
+                # Other params include embeddings and classifier
+                embedding_params = list(self.model.roberta.embeddings.parameters())
+                classifier_params = list(self.model.classifier.parameters()) if hasattr(self.model, 'classifier') else []
+                other_params = embedding_params + classifier_params
+                
+            else:
+                # Fallback: treat all parameters as "other"
+                other_params = list(self.model.parameters())
+            
+            # Create parameter groups with different learning rates
+            optimizer_grouped_parameters = []
+            
+            if encoder_params:
+                optimizer_grouped_parameters.append({
+                    "params": encoder_params,
+                    "lr": self.args.learning_rate,  # Use main learning rate for encoders
+                    "weight_decay": self.args.weight_decay,
+                })
+            
+            if other_params:
+                optimizer_grouped_parameters.append({
+                    "params": other_params,
+                    "lr": self.args.other_lr,  # Use final learning rate for other params
+                    "weight_decay": self.args.weight_decay,
+                })
+            
+            # Create optimizer
+            from transformers.optimization import AdamW
+            self.optimizer = AdamW(
+                optimizer_grouped_parameters,
+                eps=self.args.adam_epsilon,
+                betas=(self.args.adam_beta1, self.args.adam_beta2),
+            )
+        
+        return self.optimizer
+    
     def _register_teacher_hooks(self):
         """Register hooks to capture teacher model outputs"""
         def get_activation(name, storage):
@@ -293,8 +348,9 @@ class Trainer_Distill(Trainer):
                 soft_label_loss = 0
                 task_loss = 0
             else:
-                for param_group in self.optimizer.param_groups:
-                    param_group['lr'] = self.args.learning_rate_final
+                # for param_group in self.optimizer.param_groups:
+                    # param_group[0]['lr'] = self.args.learning_rate_final
+                self.optimizer.param_groups[0]['lr'] = self.args.learning_rate_final
             
             # Combine all losses with appropriate weights
         
@@ -312,7 +368,7 @@ class Trainer_Distill(Trainer):
                     "total_loss": total_loss.item(),
                     "current_step": self.state.global_step,
                     "layer_use": layer_use,  
-                    "learning_rate": self.optimizer.param_groups[0]['lr'],
+                    "learning_rate": [self.optimizer.param_groups[i]['lr'] for i in range(len(self.optimizer.param_groups))],
                 })
             return (total_loss, student_outputs) if return_outputs else total_loss
     
